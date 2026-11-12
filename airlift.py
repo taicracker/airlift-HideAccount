@@ -76,34 +76,44 @@ class AirLiftError(RuntimeError):
 def device_version(
     device_properties: dict[str, Any], properties: dict[str, Any]
 ) -> str:
+    device_properties = device_properties if isinstance(device_properties, dict) else {}
+    properties = properties if isinstance(properties, dict) else {}
     value = device_properties.get("osVersionNumber")
     if not isinstance(value, str):
-        value = (
-            properties.get("software", {})
-            .get("osVersionNumber", {})
-            .get("stringValue")
-        )
+        software = properties.get("software", {})
+        if isinstance(software, dict):
+            value = (
+                software.get("osVersionNumber", {})
+                .get("stringValue")
+            )
     return value if isinstance(value, str) else "unknown"
 
 
 def device_build(
     device_properties: dict[str, Any], properties: dict[str, Any]
 ) -> str:
+    device_properties = device_properties if isinstance(device_properties, dict) else {}
+    properties = properties if isinstance(properties, dict) else {}
     value = device_properties.get("osBuildUpdate")
     if not isinstance(value, str):
-        value = (
-            properties.get("software", {})
-            .get("osBuildVersions", {})
-            .get("buildVersion", {})
-            .get("name")
-        )
+        software = properties.get("software", {})
+        if isinstance(software, dict):
+            versions = software.get("osBuildVersions", {})
+            if isinstance(versions, dict):
+                build_version = versions.get("buildVersion", {})
+                if isinstance(build_version, dict):
+                    value = build_version.get("name")
     return value if isinstance(value, str) else "unknown"
 
 
 def available_devices(devices: list[dict[str, Any]]) -> list[dict[str, Any]]:
     matches: list[dict[str, Any]] = []
     for device in devices:
+        if not isinstance(device, dict):
+            continue
         properties = device.get("properties", {})
+        if not isinstance(properties, dict):
+            properties = {}
         connection = device.get("connectionProperties")
         hardware = device.get("hardwareProperties")
         state = device.get("deviceProperties")
@@ -113,6 +123,12 @@ def available_devices(devices: list[dict[str, Any]]) -> list[dict[str, Any]]:
             hardware = properties.get("hardware", {})
         if not isinstance(state, dict):
             state = properties.get("state", {})
+        if not isinstance(connection, dict):
+            connection = {}
+        if not isinstance(hardware, dict):
+            hardware = {}
+        if not isinstance(state, dict):
+            state = {}
 
         udid = hardware.get("udid")
         product = hardware.get("productType")
@@ -151,10 +167,12 @@ def available_devices(devices: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def selected_device(device: dict[str, Any]) -> dict[str, Any]:
-    if not device["tested"]:
+    if not isinstance(device, dict):
+        raise AirLiftError("device selection requires a device descriptor")
+    if not device.get("tested", False):
         print(
-            f"Warning: {device['product']} on iOS {device['version']} "
-            f"({device['build']}) is expected to work but has not been tested.",
+            f"Warning: {device.get('product', 'unknown')} on iOS {device.get('version', 'unknown')} "
+            f"({device.get('build', 'unknown')}) is expected to work but has not been tested.",
             file=sys.stderr,
         )
     return device
@@ -242,6 +260,8 @@ def resolve_device(requested: str | None) -> dict[str, Any]:
 
 
 def normalize_target(value: str) -> str:
+    if not isinstance(value, str):
+        raise AirLiftError("target must be a non-root absolute directory")
     target = posixpath.normpath(value)
     if not target.startswith("/") or target == "/" or "\x00" in target:
         raise AirLiftError("target must be a non-root absolute directory")
@@ -292,7 +312,11 @@ def build_archive(target: str, payload: bytes) -> bytes:
 
 def build_books(identifiers: list[str]) -> bytes:
     rows = [
-        {"Persistent ID": identifier, "Item ID": str(index), "DSID": "1"}
+        {
+            "Persistent ID": str(identifier),
+            "Item ID": str(index),
+            "DSID": "1",
+        }
         for index, identifier in enumerate(identifiers, 1)
     ]
     return plistlib.dumps({"Books": rows}, fmt=plistlib.FMT_BINARY, sort_keys=True)
